@@ -76,7 +76,26 @@ __device__ __forceinline__ void ldmatrix_m8n8x4(uint32_t* R, T* smem_ptr) {
                : "=r"(R[0]), "=r"(R[1]), "=r"(R[2]), "=r"(R[3])
                : "r"(smem_int_ptr));
 #else
-  FLASHINFER_RUNTIME_ASSERT("Unsupported CUDA architecture for ldmatrix instruction");
+   // 对于计算能力 7.0 及以下的设备，使用普通的加载指令
+    static_assert(sizeof(uint4) == 16, "uint4 size must be 16 bytes");
+    static_assert(alignof(uint4) <= alignof(T), "T must be at least as aligned as uint4");
+
+    const uint4* aligned_ptr = reinterpret_cast<const uint4*>(smem_ptr);
+    uint4 temp[2];
+
+    // 使用 ldu 指令确保正确处理未对齐的访问
+    asm volatile("ldu.global.v4.u32 {%0, %1, %2, %3}, [%4];" : "=r"(temp[0].x), "=r"(temp[0].y), "=r"(temp[0].z), "=r"(temp[0].w) : "l"(aligned_ptr));
+    asm volatile("ldu.global.v4.u32 {%0, %1, %2, %3}, [%4];" : "=r"(temp[1].x), "=r"(temp[1].y), "=r"(temp[1].z), "=r"(temp[1].w) : "l"(aligned_ptr + 1));
+
+    // 复制数据到输出数组
+    R[0] = temp[0].x;
+    R[1] = temp[0].y;
+    R[2] = temp[0].z;
+    R[3] = temp[0].w;
+    R[4] = temp[1].x;
+    R[5] = temp[1].y;
+    R[6] = temp[1].z;
+    R[7] = temp[1].w;
 #endif
 }
 
@@ -95,7 +114,24 @@ __device__ __forceinline__ void ldmatrix_m8n8x4_trans(uint32_t* R, T* smem_ptr) 
                : "=r"(R[0]), "=r"(R[1]), "=r"(R[2]), "=r"(R[3])
                : "r"(smem_int_ptr));
 #else
-  FLASHINFER_RUNTIME_ASSERT("Unsupported CUDA architecture for ldmatrix instruction");
+    // 静态断言确保 T 可以安全地转换为 uint16_t
+  static_assert(sizeof(T) == sizeof(uint16_t), "T must be 16 bits in size");
+  
+  uint16_t* smem_u16_ptr = reinterpret_cast<uint16_t*>(smem_ptr);
+  
+  #pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    uint32_t r = 0;
+    #pragma unroll
+    for (int j = 0; j < 4; ++j) {
+      // 使用 volatile 来确保每次都从内存读取
+      volatile uint16_t low = smem_u16_ptr[j * 8 + i * 2];
+      volatile uint16_t high = smem_u16_ptr[j * 8 + i * 2 + 1];
+      uint32_t elem = static_cast<uint32_t>(low) | (static_cast<uint32_t>(high) << 16);
+      r |= ((elem >> (j * 8)) & 0xFFU) << (j * 8);
+    }
+    R[i] = r;
+  }
 #endif
 }
 
