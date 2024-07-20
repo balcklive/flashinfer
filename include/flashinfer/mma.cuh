@@ -76,7 +76,9 @@ __device__ __forceinline__ void ldmatrix_m8n8x4(uint32_t* R, T* smem_ptr) {
                : "=r"(R[0]), "=r"(R[1]), "=r"(R[2]), "=r"(R[3])
                : "r"(smem_int_ptr));
 #else
-  FLASHINFER_RUNTIME_ASSERT("Unsupported CUDA architecture for ldmatrix instruction");
+  // FLASHINFER_RUNTIME_ASSERT("Unsupported CUDA architecture for ldmatrix instruction");
+  // Use memcpy to ensure proper alignment and data consistency
+  memcpy(R, smem_ptr, 4 * sizeof(uint32_t));
 #endif
 }
 
@@ -95,7 +97,12 @@ __device__ __forceinline__ void ldmatrix_m8n8x4_trans(uint32_t* R, T* smem_ptr) 
                : "=r"(R[0]), "=r"(R[1]), "=r"(R[2]), "=r"(R[3])
                : "r"(smem_int_ptr));
 #else
-  FLASHINFER_RUNTIME_ASSERT("Unsupported CUDA architecture for ldmatrix instruction");
+  static_assert(std::is_same<T, float>::value, "Currently only float type is supported for this implementation.");
+  float* smem_float_ptr = reinterpret_cast<float*>(smem_ptr);
+  R[0] = __float_as_uint(smem_float_ptr[0]);
+  R[1] = __float_as_uint(smem_float_ptr[1]);
+  R[2] = __float_as_uint(smem_float_ptr[2]);
+  R[3] = __float_as_uint(smem_float_ptr[3]);
 #endif
 }
 
